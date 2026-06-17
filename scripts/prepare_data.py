@@ -405,7 +405,8 @@ def cmd_build(args):
     info("Next / 次は:")
     print("  Colab : upload " + sharegpt_path + " in the notebook's data step")
     print("          ノートブックのデータ手順で上のファイルをアップロード")
-    print("  Mac   : mlx_lm.lora --data " + args.out + "   (see local/mac_mlx.md)")
+    print("  Mac   : python local/mlx_train.py --dataset " +
+          os.path.join(args.out, "train.jsonl") + "   (see local/mac_mlx.md)")
     return 0
 
 

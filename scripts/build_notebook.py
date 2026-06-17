@@ -192,13 +192,21 @@ def build_cells():
     # ---------------------------------------------------------------- train
     cells.append(md(
         "## 5. Train / 学習する\n"
-        "For a small custom dataset, training for a few **epochs** (full passes over\n"
-        "your data) works better than a fixed step count. 2-4 is a good range.\n"
-        "小さな自作データでは、固定ステップより数 **エポック**(データを丸ごと何周\n"
-        "するか)の方が良い結果になります。2〜4 が目安です。"
+        "Training runs for a number of **epochs** (full passes over your data). The\n"
+        "fewer examples you have, the more epochs you need for the personality to\n"
+        "stick:\n"
+        "**エポック**(データを丸ごと何周するか)で学習します。例が少ないほど、\n"
+        "個性を定着させるには多くのエポックが必要です:\n"
+        "\n"
+        "- ~30-60 examples / 例が30〜60件   -> 8-10\n"
+        "- ~100-300 examples / 100〜300件   -> 4-6\n"
+        "- 500+ examples / 500件以上        -> 2-3\n"
+        "\n"
+        "Too few and nothing changes; way too many just memorises. Watch the loss\n"
+        "drop. 少なすぎると変化なし、多すぎると丸暗記。loss が下がるのを見ます。"
     ))
     cells.append(code(
-        "EPOCHS = 3   # try 2-4 / 2〜4 で試す\n"
+        "EPOCHS = 8   # 30-60 ex: 8-10 | 100-300: 4-6 | 500+: 2-3\n"
         "\n"
         "from trl import SFTTrainer, SFTConfig\n"
         "trainer = SFTTrainer(\n"
