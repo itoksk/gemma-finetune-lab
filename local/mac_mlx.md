@@ -10,10 +10,12 @@ unified memory. Intel Macs and most Windows laptops should use the
 Intel Mac や多くの Windows は [Colab ノートブック](../notebooks/gemma4_e2b_finetune_colab.ipynb)
 を使ってください。
 
-> **New model note / 新しいモデルについて:** Gemma 4 E2B is brand new and
-> multimodal. If `mlx_lm.lora` refuses to load it, see *Troubleshooting* at the
-> bottom — install `mlx-vlm`, or just use the Colab notebook. Either way, the
-> rest of the lab (chat, app, vibe-local) is identical.
+> **Why mlx-vlm (not mlx-lm)?** Gemma 4 E2B is a brand-new *multimodal* model.
+> The plain text trainer `mlx_lm.lora` can't load it yet, so we use **`mlx-vlm`**
+> plus two tiny wrappers (`local/mlx_train.py`, `local/mlx_chat.py`) that handle
+> the new model correctly. You just run the wrappers — they do the rest.
+> Gemma 4 E2B は新しいマルチモーダルモデルなので、`mlx_lm` ではなく **`mlx-vlm`**
+> と小さなラッパーを使います。あなたはラッパーを実行するだけです。
 
 ---
 
@@ -33,10 +35,10 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 cd gemma-finetune-lab
 uv venv --python 3.12 .venv
 source .venv/bin/activate
-uv pip install mlx-lm
+uv pip install mlx-vlm
 ```
 
-(No `uv`? `python3.12 -m venv .venv && source .venv/bin/activate && pip install mlx-lm`.)
+(No `uv`? `python3.12 -m venv .venv && source .venv/bin/activate && pip install mlx-vlm`.)
 
 ---
 
@@ -47,33 +49,23 @@ python3 scripts/prepare_data.py data/examples/kobe_guide.csv \
     --system "You are a friendly Kobe tour guide."
 ```
 
-This writes `out/train.jsonl` and `out/valid.jsonl` — exactly what MLX wants
-(a folder with those two files). MLX は `out/` の `train.jsonl` と
-`valid.jsonl` をそのまま使えます。
+This writes `out/train.jsonl` (the `{"messages": [...]}` format mlx-vlm reads).
+`out/train.jsonl` ができます(mlx-vlm が読む形式)。
 
 ---
 
 ## 3. Train the LoRA adapter / LoRA を学習
 
 ```bash
-mlx_lm.lora \
-  --model mlx-community/gemma-4-e2b-it-bf16 \
-  --train \
-  --data out \
-  --iters 300 \
-  --batch-size 1 \
-  --num-layers 8 \
-  --mask-prompt \
-  --adapter-path adapters
+python local/mlx_train.py --dataset out/train.jsonl --iters 300
 ```
 
-- `mlx-community/gemma-4-e2b-it-bf16` downloads once (~5 GB). We use **bf16**, not
-  4-bit — the 4-bit Gemma 4 quants are known to be unreliable right now.
-  bf16 を使います(現状 Gemma 4 の 4bit 量子化は不安定なため)。
+- The **first run downloads the model once (~10 GB)** to your Hugging Face cache.
+  初回だけモデルを約10GBダウンロードします(以後は再利用)。
 - `--iters 300` is a quick run; raise to 600-1000 for stronger results.
-- `--mask-prompt` trains only on the assistant's replies (like Colab's
-  `train_on_responses_only`). AI の返答だけを学習します。
-- On an M-series Mac this takes roughly 5-20 minutes depending on chip and size.
+- Training only on the assistant's replies is on by default (`--train-on-completions`).
+- Any `mlx_vlm.lora` flag works too, e.g. `--lora-rank 16 --batch-size 1`.
+- On an M-series Mac this takes roughly 5-20 minutes; peak memory ~11 GB.
 
 The adapter lands in `adapters/`. 完成したアダプターは `adapters/` に入ります。
 
@@ -82,48 +74,29 @@ The adapter lands in `adapters/`. 完成したアダプターは `adapters/` に
 ## 4. Chat with it / 会話してみる
 
 ```bash
-mlx_lm.generate \
-  --model mlx-community/gemma-4-e2b-it-bf16 \
-  --adapter-path adapters \
-  --prompt "What is Kobe famous for?"
-
-# or an interactive chat / 対話モード
-mlx_lm.chat \
-  --model mlx-community/gemma-4-e2b-it-bf16 \
-  --adapter-path adapters
+python local/mlx_chat.py "What is Kobe famous for?"
 ```
 
-That alone is "chatting with your fine-tune locally." To use it in **Ollama**,
-the browser app, or **vibe-local**, do step 5.
+That is "chatting with your fine-tune locally" — done, fully on your Mac.
+これで「自分の Mac だけで、育てた AI と会話」できています。
 
 ---
 
-## 5. Take it into Ollama / Ollama に取り込む
+## 5. (Optional) Take it into Ollama / (任意) Ollama に取り込む
 
-Ollama gives you `ollama run`, the [browser chat app](../use/web-chat/), and
-[vibe-local](../use/vibe-local.md). First fuse the adapter into the model, then
-convert to GGUF with llama.cpp:
+`mlx_chat.py` already lets you use the model. If you also want it in **Ollama**
+(for the [browser app](../use/web-chat/) or [vibe-local](../use/vibe-local.md)),
+the **reliable** route for this brand-new model is the **Colab notebook's GGUF
+export** (it produces `my-gemma.gguf` + a `Modelfile` ready for `ollama create`).
 
-```bash
-# fuse adapter + base into one model / アダプターと本体を統合
-mlx_lm.fuse \
-  --model mlx-community/gemma-4-e2b-it-bf16 \
-  --adapter-path adapters \
-  --save-path fused-model
+`mlx_chat.py` だけでも使えます。さらに **Ollama**(ブラウザアプリや vibe-local 用)
+で使いたい場合、この新しいモデルでは **Colab ノートブックの GGUF 書き出し** が
+確実です(`my-gemma.gguf` と `Modelfile` ができます)。
 
-# convert the fused model to GGUF (one-time llama.cpp setup) / GGUF に変換
-git clone https://github.com/ggml-org/llama.cpp
-pip install -r llama.cpp/requirements.txt
-python llama.cpp/convert_hf_to_gguf.py fused-model \
-    --outfile my-gemma.gguf --outtype q8_0
-
-# import into Ollama / Ollama に登録
-printf 'FROM ./my-gemma.gguf\nPARAMETER temperature 1.0\nPARAMETER top_p 0.95\nPARAMETER top_k 64\n' > Modelfile
-ollama create my-gemma -f Modelfile
-ollama run my-gemma "What is Kobe famous for?"
-```
-
-Or use the helper: `bash local/import_to_ollama.sh my-gemma .`
+> Converting a Mac/MLX adapter to GGUF for Ollama is still unreliable for Gemma 4
+> E2B (the tooling is catching up). So: **train + chat on the Mac with MLX**, or
+> **train on Colab** when you want the Ollama / browser-app / vibe-local route.
+> MLX のアダプターを GGUF に変換する経路は Gemma 4 E2B ではまだ不安定です。
 
 ---
 
@@ -131,8 +104,9 @@ Or use the helper: `bash local/import_to_ollama.sh my-gemma .`
 
 | Symptom / 症状 | Fix / 対処 |
 | --- | --- |
-| `mlx_lm.lora` can't load Gemma 4 / 読めない | Your mlx-lm may predate Gemma 4. `uv pip install -U mlx-lm`, or try the multimodal trainer: `uv pip install mlx-vlm` then `mlx_vlm.lora --model mlx-community/gemma-4-e2b-it-bf16 --train --data out --iters 300`. Still stuck? Use the Colab notebook. |
-| Out of memory / メモリ不足 | Lower `--num-layers` (e.g. 4), close other apps, or use Colab. |
-| Garbled output / 出力が変 | Make sure you used the **bf16** model, not a 4-bit one. Re-fuse and re-export. |
-| `convert_hf_to_gguf.py` errors on Gemma 4 | llama.cpp support for this new model may lag — use the Colab notebook's GGUF export instead, then `ollama create`. |
-| Python errors on install | You're probably on Python 3.13+. Recreate the venv with 3.12 (see step 1). |
+| `No module named mlx_vlm` | `uv pip install mlx-vlm` inside your activated venv. |
+| `Received N parameters not in model` | You ran plain `mlx_lm.lora`. Use `python local/mlx_train.py` instead (it handles this). |
+| `Dataset ... doesn't exist on the Hub` | Pass a real local path, e.g. `--dataset out/train.jsonl`. The wrapper loads local files. |
+| Out of memory / メモリ不足 | Close other apps; try `--batch-size 1` (default). 16 GB is the practical minimum. |
+| First run is slow | It's the one-time ~10 GB model download. Later runs reuse the cache. |
+| Python errors on install | You're probably on Python 3.13+. Recreate the venv with 3.12 (step 1). |
