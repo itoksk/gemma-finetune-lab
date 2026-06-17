@@ -109,6 +109,23 @@ It creates two outputs from one source — you only edit your CSV:
 - `out/train_sharegpt.jsonl` → the **Google Colab** notebook (Unsloth)
 - `out/train.jsonl` + `out/valid.jsonl` → **local Mac** training (MLX)
 
+## 6. Getting your data into the notebook / ノートブックへの渡し方
+
+The Colab notebook can take your data **two ways** (set `DATA_SOURCE`):
+
+Colab ノートブックは、あなたのデータを **2通り** で受け取れます(`DATA_SOURCE` で選ぶ):
+
+1. **Upload / アップロード** — choose your CSV or `.jsonl` from your computer.
+   パソコンから CSV か `.jsonl` を選ぶ。
+2. **From your GitHub / GitHub から** — put your file in your own repo, open it,
+   click **Raw**, copy the URL, and paste it into `MY_DATA_URL`. The notebook
+   downloads it automatically.
+   自分のリポジトリにファイルを置き、開いて **Raw** を押し、その URL を
+   `MY_DATA_URL` に貼る。ノートブックが自動で取得します。
+
+Either way, a **CSV** is auto-converted by `prepare_data.py` inside the notebook,
+and a `.jsonl` is used as-is. **CSV** はノート内で自動変換、`.jsonl` はそのまま。
+
 ---
 
 ## Example datasets here / ここにある例

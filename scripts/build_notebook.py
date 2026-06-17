@@ -114,34 +114,55 @@ def build_cells():
     # ---------------------------------------------------------------- data
     cells.append(md(
         "## 4. Load YOUR data / あなたのデータを読み込む\n"
-        "Run the cell, then click **Choose Files** and pick the\n"
-        "`out/train_sharegpt.jsonl` you made with `prepare_data.py`.\n"
-        "セルを実行し、**ファイルを選択**から `prepare_data.py` で作った\n"
-        "`out/train_sharegpt.jsonl` を選びます。\n"
+        "Your data can come from **three** places. Set `DATA_SOURCE` in the next\n"
+        "cell, then run.\n"
+        "データの取り込み方は **3通り**。次のセルの `DATA_SOURCE` を選んで実行します。\n"
         "\n"
-        "*No data yet? Run the next-but-one cell to grab an example instead.*\n"
-        "*まだデータが無い人は、ひとつ下の「例を使う」セルを実行してください。*"
+        "- `\"upload\"` — pick a file from your computer (a CSV or a .jsonl)\n"
+        "  パソコンからファイルを選ぶ(CSV か .jsonl)\n"
+        "- `\"github\"` — load your own file from **your** GitHub (paste its Raw URL)\n"
+        "  **自分の** GitHub に置いたファイルを読む(Raw の URL を貼る)\n"
+        "- `\"example\"` — try a ready-made example dataset / 用意された例で試す\n"
+        "\n"
+        "A **CSV** is auto-cleaned + converted by `prepare_data.py`; a **.jsonl**\n"
+        "(already prepared) is used as-is.\n"
+        "**CSV** は `prepare_data.py` が自動で整形・変換、**.jsonl** はそのまま使います。"
     ))
     cells.append(code(
-        "from google.colab import files\n"
-        'print("Upload out/train_sharegpt.jsonl  /  out/train_sharegpt.jsonl をアップロード")\n'
-        "uploaded = files.upload()\n"
-        'data_file = next(iter(uploaded)) if uploaded else "train_sharegpt.jsonl"\n'
-        'print("Using:", data_file)'
+        '# Choose ONE / どれか1つ:  "upload" | "github" | "example"\n'
+        'DATA_SOURCE = "upload"\n'
+        "\n"
+        '# For "github" only: paste your file\'s RAW url\n'
+        '# (open the file on GitHub, click the "Raw" button, copy that URL).\n'
+        '# 「github」のときだけ: GitHub でファイルを開き "Raw" を押した URL を貼る。\n'
+        'MY_DATA_URL = ""  # e.g. https://raw.githubusercontent.com/you/your-repo/main/mydata.csv'
     ))
-    cells.append(md("**Or** use an example dataset instead of uploading / "
-                    "**または** アップロードせず例のデータを使う:"))
     cells.append(code(
-        "# Only run this if you did NOT upload your own file above.\n"
-        "# 自分のファイルをアップロードしなかった人だけ実行。\n"
-        "import urllib.request\n"
-        f'url = "{RAW}/data/examples/cafe_faq.csv"\n'
-        '# Convert the example CSV to the format the notebook wants:\n'
-        'urllib.request.urlretrieve("' + RAW + '/scripts/prepare_data.py", "prepare_data.py")\n'
-        'urllib.request.urlretrieve(url, "cafe_faq.csv")\n'
-        "!python3 prepare_data.py cafe_faq.csv\n"
-        'data_file = "out/train_sharegpt.jsonl"\n'
-        'print("Using example:", data_file)'
+        "import urllib.request, os\n"
+        f'LAB_RAW = "{RAW}"\n'
+        "\n"
+        'if DATA_SOURCE == "upload":\n'
+        "    from google.colab import files\n"
+        '    print("Choose your file (CSV or .jsonl) / ファイルを選ぶ")\n'
+        "    up = files.upload(); src = next(iter(up))\n"
+        'elif DATA_SOURCE == "github":\n'
+        '    assert MY_DATA_URL, "Set MY_DATA_URL first / さきに MY_DATA_URL を設定"\n'
+        '    src = MY_DATA_URL.split("/")[-1].split("?")[0]\n'
+        "    urllib.request.urlretrieve(MY_DATA_URL, src)\n"
+        "else:  # example\n"
+        '    urllib.request.urlretrieve(LAB_RAW + "/data/examples/cafe_faq.csv", "cafe_faq.csv")\n'
+        '    src = "cafe_faq.csv"\n'
+        'print("Got:", src)\n'
+        "\n"
+        "# A CSV is cleaned + converted by our data tool; a .jsonl is ready already.\n"
+        "# CSV は整形ツールで変換、.jsonl はそのまま。\n"
+        'if src.endswith(".csv"):\n'
+        '    urllib.request.urlretrieve(LAB_RAW + "/scripts/prepare_data.py", "prepare_data.py")\n'
+        '    os.system(f"python3 prepare_data.py {src}")\n'
+        '    data_file = "out/train_sharegpt.jsonl"\n'
+        "else:\n"
+        "    data_file = src\n"
+        'print("data_file =", data_file)'
     ))
     cells.append(code(
         "from datasets import load_dataset\n"
