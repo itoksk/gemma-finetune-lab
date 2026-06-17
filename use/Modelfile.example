@@ -1,0 +1,50 @@
+# Modelfile — tells Ollama how to build your custom model.
+# Ollama に「カスタムモデルの作り方」を伝えるファイルです。
+#
+# Pick ONE of the two options below, save it as a file named exactly `Modelfile`
+# (no extension), put it next to the model file it points to, then run:
+#   ollama create my-gemma -f Modelfile
+#   ollama run my-gemma "Hello!"
+#
+# 下の2つのうち1つを選び、`Modelfile`(拡張子なし)という名前で保存し、
+# 指し示すモデルファイルと同じフォルダに置いて上のコマンドを実行します。
+
+# ============================================================================
+# OPTION A — Merged GGUF  (recommended / おすすめ・確実)
+# The Colab notebook (step 7A) gives you `my-gemma.gguf`. Put it next to this
+# file. Self-contained: works on any computer with Ollama.
+# Colab のステップ7A で `my-gemma.gguf` が手に入ります。このファイルの隣に置けば、
+# Ollama さえ入っていればどのパソコンでも動きます。
+# ============================================================================
+FROM ./my-gemma.gguf
+PARAMETER temperature 1.0
+PARAMETER top_p 0.95
+PARAMETER top_k 64
+
+# ============================================================================
+# OPTION B — LoRA adapter on top of the base you already have (small / 軽い)
+# The Colab notebook (step 7B) gives you `gemma_lora.zip`. Unzip it to a folder
+# (e.g. ./gemma_lora) next to this file, then DELETE option A above and use:
+# Colab のステップ7B の `gemma_lora.zip` を解凍してフォルダにし、上の OPTION A を
+# 消してから以下を使います。
+#
+#   FROM gemma4:e2b
+#   ADAPTER ./gemma_lora
+#   PARAMETER temperature 1.0
+#   PARAMETER top_p 0.95
+#   PARAMETER top_k 64
+#
+# Note: requires `ollama pull gemma4:e2b` first. The adapter must match the base.
+# 先に `ollama pull gemma4:e2b` が必要です。アダプターと土台のモデルは一致が必要。
+
+# ============================================================================
+# If replies look wrong / 返答が変なとき
+# Gemma 4 E2B is brand new. If the model ignores the chat format, add an explicit
+# TEMPLATE block (uncomment) so Ollama renders turns correctly:
+# Gemma 4 E2B は新しいモデルです。会話形式を無視するようなら、下の TEMPLATE の
+# コメントを外して明示してください。
+# ============================================================================
+# TEMPLATE """{{- range .Messages }}<|turn>{{ .Role }}
+# {{ .Content }}<turn|>
+# {{ end }}<|turn>model
+# """

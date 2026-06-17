@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>My Gemma — local chat</title>
+<style>
+  :root {
+    --bg: #f4f4f2;
+    --panel: #ffffff;
+    --ink: #1a1a1a;
+    --muted: #6b6b6b;
+    --line: #e2e2de;
+    --accent: #b0413e;        /* a calm brick red */
+    --user: #ecebe7;
+    --bot: #fbfbf9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #16181c; --panel: #1f2227; --ink: #ececec; --muted: #9aa0a6;
+      --line: #2c3036; --user: #2a2e34; --bot: #1b1e22;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+      "Hiragino Sans", "Noto Sans JP", sans-serif;
+    height: 100vh; display: flex; flex-direction: column;
+  }
+  header {
+    padding: 14px 18px; border-bottom: 1px solid var(--line);
+    background: var(--panel); display: flex; gap: 12px; align-items: center;
+    flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  header .dot.on { background: #3f9d58; }
+  header .dot.off { background: var(--accent); }
+  .spacer { flex: 1; }
+  label { font-size: 12px; color: var(--muted); }
+  input[type=text] {
+    font: inherit; font-size: 14px; padding: 6px 9px; color: var(--ink);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 8px;
+  }
+  #model { width: 150px; }
+  main {
+    flex: 1; overflow-y: auto; padding: 18px; display: flex;
+    flex-direction: column; gap: 12px;
+  }
+  .msg { max-width: 760px; width: fit-content; padding: 10px 14px;
+    border-radius: 12px; line-height: 1.55; white-space: pre-wrap;
+    border: 1px solid var(--line); }
+  .msg.user { align-self: flex-end; background: var(--user); }
+  .msg.bot { align-self: flex-start; background: var(--bot); }
+  .msg .who { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .hint { color: var(--muted); font-size: 13px; max-width: 760px; }
+  .hint code { background: var(--user); padding: 1px 5px; border-radius: 5px; }
+  footer {
+    border-top: 1px solid var(--line); background: var(--panel);
+    padding: 12px 18px; display: flex; gap: 10px;
+  }
+  #box { flex: 1; font: inherit; font-size: 15px; padding: 11px 13px;
+    border: 1px solid var(--line); border-radius: 10px; resize: none;
+    background: var(--bg); color: var(--ink); min-height: 46px; max-height: 160px; }
+  button {
+    font: inherit; font-weight: 600; padding: 0 18px; border: 0; cursor: pointer;
+    background: var(--accent); color: #fff; border-radius: 10px;
+  }
+  button:disabled { opacity: .5; cursor: default; }
+</style>
+</head>
+<body>
+  <header>
+    <span id="status" class="dot" title="Ollama connection"></span>
+    <h1>My Gemma — local chat</h1>
+    <span class="spacer"></span>
+    <label for="model">model</label>
+    <input id="model" type="text" value="my-gemma" spellcheck="false" />
+  </header>
+
+  <main id="log">
+    <p class="hint">
+      This page talks to <strong>your fine-tuned model</strong> running locally in
+      Ollama — nothing is sent to the internet. Type a message below to begin.<br />
+      このページは、Ollama でローカルに動く<strong>あなたのモデル</strong>と会話します。
+      インターネットには何も送りません。下に入力して始めましょう。
+    </p>
+  </main>
+
+  <footer>
+    <textarea id="box" placeholder="Type a message…  (Enter to send, Shift+Enter for a new line)"></textarea>
+    <button id="send">Send</button>
+  </footer>
+
+<script>
+const OLLAMA = "http://localhost:11434";
+const log = document.getElementById("log");
+const box = document.getElementById("box");
+const sendBtn = document.getElementById("send");
+const modelInput = document.getElementById("model");
+const statusDot = document.getElementById("status");
+const messages = [];   // chat history sent to the model
+
+// --- connection check / 接続チェック ---------------------------------------
+async function ping() {
+  try {
+    const r = await fetch(OLLAMA + "/api/tags");
+    if (!r.ok) throw new Error();
+    statusDot.className = "dot on"; statusDot.title = "Ollama connected";
+  } catch {
+    statusDot.className = "dot off"; statusDot.title = "Ollama not reachable";
+  }
+}
+ping(); setInterval(ping, 5000);
+
+// --- UI helpers ------------------------------------------------------------
+function addMsg(who, role) {
+  const el = document.createElement("div");
+  el.className = "msg " + (role === "user" ? "user" : "bot");
+  el.innerHTML = '<div class="who"></div><div class="text"></div>';
+  el.querySelector(".who").textContent = who;
+  log.appendChild(el);
+  log.scrollTop = log.scrollHeight;
+  return el.querySelector(".text");
+}
+function note(text) {
+  const p = document.createElement("p");
+  p.className = "hint"; p.innerHTML = text;
+  log.appendChild(p); log.scrollTop = log.scrollHeight;
+}
+
+// --- send + stream ---------------------------------------------------------
+async function send() {
+  const text = box.value.trim();
+  if (!text) return;
+  const model = modelInput.value.trim() || "my-gemma";
+
+  box.value = ""; sendBtn.disabled = true;
+  addMsg("you", "user").textContent = text;
+  messages.push({ role: "user", content: text });
+  const out = addMsg(model, "assistant");
+
+  try {
+    const resp = await fetch(OLLAMA + "/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model, messages, stream: true }),
+    });
+    if (!resp.ok) {
+      const body = await resp.text();
+      throw new Error("HTTP " + resp.status + " — " + body);
+    }
+
+    // Read the NDJSON stream line by line / NDJSON を1行ずつ読む
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "", full = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let nl;
+      while ((nl = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, nl).trim();
+        buffer = buffer.slice(nl + 1);
+        if (!line) continue;
+        const obj = JSON.parse(line);
+        if (obj.message && obj.message.content) {
+          full += obj.message.content;
+          out.textContent = full;
+          log.scrollTop = log.scrollHeight;
+        }
+        if (obj.done) {} // final line carries timing stats; ignore
+      }
+    }
+    messages.push({ role: "assistant", content: full });
+  } catch (e) {
+    out.textContent = "";
+    note(
+      "<strong>Couldn't reach your model.</strong> Check that:<br>" +
+      "1) Ollama is running, &nbsp; 2) you created the model " +
+      "(<code>ollama create " + (modelInput.value || "my-gemma") +
+      " -f Modelfile</code>), &nbsp; 3) the model name above matches.<br>" +
+      "If you opened this file directly, serve it instead: in this folder run " +
+      "<code>python3 -m http.server</code> and open " +
+      "<code>http://localhost:8000</code>. If the browser blocks it, set " +
+      "<code>OLLAMA_ORIGINS=*</code> and restart Ollama.<br>" +
+      "<span style='color:var(--accent)'>" + (e.message || e) + "</span>"
+    );
+  } finally {
+    sendBtn.disabled = false; box.focus();
+  }
+}
+
+sendBtn.addEventListener("click", send);
+box.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+});
+box.focus();
+</script>
+</body>
+</html>

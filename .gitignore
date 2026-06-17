@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Generated training data (students make their own)
+out/
+out_*/
+*-out/
+data/your_*
+
+# Model artifacts — never commit these (large)
+*.gguf
+*.safetensors
+adapters/
+fused-model/
+gemma_*_lora/
+gemma-4-finetune/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets — never commit
+.env
+.env.*
+*api_key*
+*.pem
