@@ -17,8 +17,8 @@
 # Ollama さえ入っていればどのパソコンでも動きます。
 # ============================================================================
 FROM ./my-gemma.gguf
-PARAMETER temperature 1.0
-PARAMETER top_p 0.95
+PARAMETER temperature 0.1
+PARAMETER top_p 0.9
 PARAMETER top_k 64
 
 # ============================================================================
@@ -30,8 +30,8 @@ PARAMETER top_k 64
 #
 #   FROM gemma4:e2b
 #   ADAPTER ./gemma_lora
-#   PARAMETER temperature 1.0
-#   PARAMETER top_p 0.95
+#   PARAMETER temperature 0.1
+#   PARAMETER top_p 0.9
 #   PARAMETER top_k 64
 #
 # Note: requires `ollama pull gemma4:e2b` first. The adapter must match the base.

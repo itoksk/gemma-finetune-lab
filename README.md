@@ -79,6 +79,8 @@ Google スプレッドシートで作って CSV 書き出し。詳しくは [`da
 python3 scripts/prepare_data.py data/examples/cafe_faq.csv
 # 性格をつけるなら / add a personality:
 python3 scripts/prepare_data.py my_data.csv --system "あなたは親切な案内役です。"
+# 同じ質問に複数の正しい答えがあるCSVなら:
+python3 scripts/prepare_data.py my_restaurants.csv --merge-same-user
 ```
 
 **2) 学習する**(下から1つ選ぶ)
@@ -98,6 +100,19 @@ ollama run my-gemma "こんにちは"
 **4) 使う**
 - **ブラウザのアプリ**: [`use/web-chat/`](use/web-chat/) を開く。
 - **vibe-local(ターミナル)**: [`use/vibe-local.md`](use/vibe-local.md)。
+- **CSVの事実検索**: [`rag/csv_rag_chat.py`](rag/csv_rag_chat.py)。店名・特徴・URLなどを
+  正確に使うならファインチューニングよりRAGが安定します。
+
+### ファインチューニングとRAGの使い分け
+- **ファインチューニング**: 口調、短く答える癖、案内役らしさを教える。
+- **RAG**: CSVにある店名・特徴・URLなどの事実を検索して答える。
+- 同じ質問に複数の正しい答えがあるCSVは、学習前に `--merge-same-user` で候補一覧にまとめるか、
+  RAGとして使います。
+
+```bash
+python3 rag/csv_rag_chat.py my_restaurants.csv --query "神戸でラーメンなら？" --no-llm
+python3 rag/csv_rag_chat.py my_restaurants.csv --model gemma4:e2b
+```
 
 ### 守ってほしいこと
 - データに**個人情報を入れない**(実名・住所・電話番号・パスワードなど)。
@@ -146,6 +161,7 @@ build a Google Sheet and export CSV. Full guide: [`data/README.md`](data/README.
 ```bash
 python3 scripts/prepare_data.py data/examples/cafe_faq.csv
 python3 scripts/prepare_data.py my_data.csv --system "You are a helpful guide."
+python3 scripts/prepare_data.py my_restaurants.csv --merge-same-user
 ```
 
 **2) Train** (pick one)
@@ -164,6 +180,19 @@ ollama run my-gemma "Hello!"
 **4) Use it**
 - **Browser app**: open [`use/web-chat/`](use/web-chat/).
 - **vibe-local (terminal)**: see [`use/vibe-local.md`](use/vibe-local.md).
+- **CSV fact lookup**: use [`rag/csv_rag_chat.py`](rag/csv_rag_chat.py). RAG is
+  more reliable than fine-tuning for names, features, URLs, rules, and prices.
+
+### Fine-tuning vs RAG
+- **Fine-tuning** teaches tone, style, and answer patterns.
+- **RAG** retrieves facts from the CSV and asks the model to answer from that context.
+- If the same question has multiple correct answers, either merge it with
+  `--merge-same-user` before training, or use the CSV through RAG.
+
+```bash
+python3 rag/csv_rag_chat.py my_restaurants.csv --query "ramen in Kobe?" --no-llm
+python3 rag/csv_rag_chat.py my_restaurants.csv --model gemma4:e2b
+```
 
 ### Responsible use
 - **Never put private information** in your data (real names, addresses, phone
@@ -180,6 +209,7 @@ data/        template + example datasets + how to design good data
 scripts/     prepare_data.py (data tool) + build_notebook.py (regenerate the notebook)
 notebooks/   gemma4_e2b_finetune_colab.ipynb  (Colab training)
 local/       mac_mlx.md, windows_unsloth.md, finetune_mlx.sh, import_to_ollama.sh/.ps1
+rag/         CSV-backed retrieval chat for factual answers
 use/         Modelfile.example, web-chat/ (browser app), vibe-local.md
 ```
 
@@ -189,6 +219,7 @@ use/         Modelfile.example, web-chat/ (browser app), vibe-local.md
 | --- | --- |
 | Colab: no GPU / GPU が無い | Runtime ▸ Change runtime type ▸ T4 GPU |
 | Replies seem off / 返答が変 | Re-export at `q8_0` (notebook step 7), check the `Modelfile` template. Gemma 4 E2B is new — quality varies by tool. |
+| Same question has many correct answers / 同じ質問に複数の正解 | Run `prepare_data.py --merge-same-user`, or use `rag/csv_rag_chat.py` for factual lookup. |
 | `ollama: command not found` | Install Ollama: https://ollama.com/download |
 | Browser app won't connect | Serve the folder (`python3 -m http.server`) and set `OLLAMA_ORIGINS=*`, restart Ollama. See [`use/web-chat/README.md`](use/web-chat/README.md). |
 | Mac: `mlx_lm.lora` can't load Gemma 4 | See [`local/mac_mlx.md`](local/mac_mlx.md) Troubleshooting (try `mlx-vlm`, or use Colab). |

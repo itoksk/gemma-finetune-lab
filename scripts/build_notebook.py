@@ -126,11 +126,23 @@ def build_cells():
         "\n"
         "A **CSV** is auto-cleaned + converted by `prepare_data.py`; a **.jsonl**\n"
         "(already prepared) is used as-is.\n"
-        "**CSV** は `prepare_data.py` が自動で整形・変換、**.jsonl** はそのまま使います。"
+        "**CSV** は `prepare_data.py` が自動で整形・変換、**.jsonl** はそのまま使います。\n"
+        "\n"
+        "If your CSV has the **same question with different valid answers** (for\n"
+        "example, one food genre with many restaurant candidates), keep\n"
+        "`MERGE_SAME_USER = True`. It turns those rows into one multi-candidate\n"
+        "answer instead of teaching contradictory single answers.\n"
+        "同じ質問に複数の正しい答えがある CSV（例: 1ジャンルに複数店舗）では\n"
+        "`MERGE_SAME_USER = True` のままにします。矛盾した単一回答ではなく、\n"
+        "候補一覧の1回答にまとめます。"
     ))
     cells.append(code(
         '# Choose ONE / どれか1つ:  "upload" | "github" | "example"\n'
         'DATA_SOURCE = "upload"\n'
+        "\n"
+        "# Merge exact duplicate questions into one multi-answer training example.\n"
+        "# 同じ質問に複数回答がある場合、候補一覧の1例にまとめる。\n"
+        "MERGE_SAME_USER = True\n"
         "\n"
         '# For "github" only: paste your file\'s RAW url\n'
         '# (open the file on GitHub, click the "Raw" button, copy that URL).\n'
@@ -138,8 +150,92 @@ def build_cells():
         'MY_DATA_URL = ""  # e.g. https://raw.githubusercontent.com/you/your-repo/main/mydata.csv'
     ))
     cells.append(code(
-        "import urllib.request, os\n"
+        "import csv, os, re, subprocess, sys, urllib.request\n"
+        "from collections import OrderedDict\n"
         f'LAB_RAW = "{RAW}"\n'
+        "\n"
+        "def _clean_text(value):\n"
+        "    return (\"\" if value is None else str(value)).strip()\n"
+        "\n"
+        "def _extract_candidate(answer):\n"
+        "    name = re.search(r\"「([^」]+)」\", answer)\n"
+        "    feature = re.search(r\"特徴：([^）\\n]+)\", answer)\n"
+        "    url = re.search(r\"https?://\\S+\", answer)\n"
+        "    if not name:\n"
+        "        return None\n"
+        "    return {\n"
+        "        \"name\": name.group(1).strip(),\n"
+        "        \"feature\": feature.group(1).strip() if feature else \"\",\n"
+        "        \"url\": url.group(0).strip() if url else \"\",\n"
+        "    }\n"
+        "\n"
+        "def _format_merged_answer(answers):\n"
+        "    unique = list(OrderedDict((a, None) for a in answers if _clean_text(a)).keys())\n"
+        "    candidates, seen = [], set()\n"
+        "    for answer in unique:\n"
+        "        item = _extract_candidate(answer)\n"
+        "        if item and item[\"name\"] not in seen:\n"
+        "            candidates.append(item)\n"
+        "            seen.add(item[\"name\"])\n"
+        "    if len(candidates) == len(unique):\n"
+        "        lines = [\"候補は複数あります。おすすめは次のお店です。\"]\n"
+        "        for i, item in enumerate(candidates, 1):\n"
+        "            line = f\"{i}. {item['name']}\"\n"
+        "            if item[\"feature\"]:\n"
+        "                line += f\"（特徴：{item['feature']}）\"\n"
+        "            if item[\"url\"]:\n"
+        "                line += f\"\\n   地図: {item['url']}\"\n"
+        "            lines.append(line)\n"
+        "        return \"\\n\".join(lines)\n"
+        "    lines = [\"候補は複数あります。代表的な回答は次のとおりです。\"]\n"
+        "    for i, answer in enumerate(unique, 1):\n"
+        "        lines.append(f\"{i}. {answer}\")\n"
+        "    return \"\\n\".join(lines)\n"
+        "\n"
+        "def merge_same_user_csv(path):\n"
+        "    with open(path, newline=\"\", encoding=\"utf-8-sig\") as f:\n"
+        "        reader = csv.DictReader(f)\n"
+        "        rows = list(reader)\n"
+        "        fieldnames = reader.fieldnames or []\n"
+        "    lower = {name.lower(): name for name in fieldnames}\n"
+        "    user_col = next((lower[k] for k in [\"user\", \"instruction\", \"question\", \"prompt\", \"input\"] if k in lower), None)\n"
+        "    assistant_col = next((lower[k] for k in [\"assistant\", \"response\", \"answer\", \"completion\", \"output\"] if k in lower), None)\n"
+        "    system_col = next((lower[k] for k in [\"system\", \"persona\", \"instructions\"] if k in lower), None)\n"
+        "    if not user_col or not assistant_col:\n"
+        "        return path\n"
+        "    groups = OrderedDict()\n"
+        "    for row in rows:\n"
+        "        user = _clean_text(row.get(user_col))\n"
+        "        assistant = _clean_text(row.get(assistant_col))\n"
+        "        system = _clean_text(row.get(system_col)) if system_col else \"\"\n"
+        "        if not user or not assistant:\n"
+        "            continue\n"
+        "        groups.setdefault((system, user), []).append(assistant)\n"
+        "    out_rows, merged_groups, merged_input_rows = [], 0, 0\n"
+        "    for (system, user), answers in groups.items():\n"
+        "        unique = list(OrderedDict((a, None) for a in answers).keys())\n"
+        "        if len(unique) > 1:\n"
+        "            assistant = _format_merged_answer(unique)\n"
+        "            merged_groups += 1\n"
+        "            merged_input_rows += len(answers)\n"
+        "        else:\n"
+        "            assistant = unique[0]\n"
+        "        rec = {\"user\": user, \"assistant\": assistant}\n"
+        "        if system:\n"
+        "            rec[\"system\"] = system\n"
+        "        out_rows.append(rec)\n"
+        "    if not merged_groups:\n"
+        "        print(\"No duplicate questions to merge / 集約する重複質問はありません\")\n"
+        "        return path\n"
+        "    out = os.path.splitext(path)[0] + \"_merged.csv\"\n"
+        "    out_fields = [\"user\", \"assistant\"] + ([\"system\"] if any(\"system\" in r for r in out_rows) else [])\n"
+        "    with open(out, \"w\", newline=\"\", encoding=\"utf-8\") as f:\n"
+        "        writer = csv.DictWriter(f, fieldnames=out_fields)\n"
+        "        writer.writeheader()\n"
+        "        writer.writerows(out_rows)\n"
+        "    print(f\"Merged duplicate questions: {merged_groups} groups, {merged_input_rows} rows -> {len(out_rows)} rows\")\n"
+        "    print(\"集約後CSV:\", out)\n"
+        "    return out\n"
         "\n"
         'if DATA_SOURCE == "upload":\n'
         "    from google.colab import files\n"
@@ -157,8 +253,15 @@ def build_cells():
         "# A CSV is cleaned + converted by our data tool; a .jsonl is ready already.\n"
         "# CSV は整形ツールで変換、.jsonl はそのまま。\n"
         'if src.endswith(".csv"):\n'
+        '    if MERGE_SAME_USER:\n'
+        '        src = merge_same_user_csv(src)\n'
         '    urllib.request.urlretrieve(LAB_RAW + "/scripts/prepare_data.py", "prepare_data.py")\n'
-        '    os.system(f"python3 prepare_data.py {src}")\n'
+        '    cmd = [sys.executable, "prepare_data.py", src]\n'
+        '    r = subprocess.run(cmd, capture_output=True, text=True)\n'
+        '    print(r.stdout)\n'
+        '    if r.returncode != 0:\n'
+        '        print(r.stderr)\n'
+        '        raise RuntimeError(f"prepare_data.py failed / 失敗しました: exit={r.returncode}")\n'
         '    data_file = "out/train_sharegpt.jsonl"\n'
         "else:\n"
         "    data_file = src\n"
@@ -239,6 +342,15 @@ def build_cells():
         '    response_part = "<|turn>model\\n",\n'
         ")"
     ))
+    cells.append(code(
+        "# Quick mask check: learned tokens must be > 0.\n"
+        "# 確認: learned tokens が 0 なら返答部分を学習できていません。\n"
+        "batch = next(iter(trainer.get_train_dataloader()))\n"
+        'labels = batch["labels"]\n'
+        "learned_tokens = int((labels != -100).sum())\n"
+        'print("learned tokens:", learned_tokens)\n'
+        'assert learned_tokens > 0, "No assistant tokens are being trained. Check chat template markers."\n'
+    ))
     cells.append(code("trainer_stats = trainer.train()\n"
                       'print("Done! / 完了!", trainer_stats.metrics.get("train_runtime"), "seconds")'))
 
@@ -250,14 +362,17 @@ def build_cells():
         "from transformers import TextStreamer\n"
         "messages = [{\n"
         '    "role": "user",\n'
-        '    "content": [{"type": "text", "text": "What time do you open?"}]\n'
+        '    "content": [{"type": "text", "text": "神戸でおすすめのラーメンのお店はありますか？"}]\n'
         "}]\n"
         "inputs = tokenizer.apply_chat_template(\n"
-        "    messages, add_generation_prompt=True, return_tensors='pt',\n"
-        '    tokenize=True, return_dict=True,\n'
+        "    messages,\n"
+        "    add_generation_prompt=True,\n"
+        "    enable_thinking=False,\n"
+        "    return_tensors='pt',\n"
+        "    tokenize=True, return_dict=True,\n"
         ').to("cuda")\n'
-        "_ = model.generate(**inputs, max_new_tokens=128,\n"
-        "                   temperature=1.0, top_p=0.95, top_k=64,\n"
+        "_ = model.generate(**inputs, max_new_tokens=256,\n"
+        "                   do_sample=False,\n"
         "                   streamer=TextStreamer(tokenizer, skip_prompt=True))"
     ))
 
@@ -292,8 +407,8 @@ def build_cells():
     cells.append(code(
         "# Write a Modelfile next to the GGUF / GGUF と一緒に Modelfile を作る\n"
         "modelfile = '''FROM ./my-gemma.gguf\n"
-        "PARAMETER temperature 1.0\n"
-        "PARAMETER top_p 0.95\n"
+        "PARAMETER temperature 0.1\n"
+        "PARAMETER top_p 0.9\n"
         "PARAMETER top_k 64\n"
         "'''\n"
         'open("Modelfile", "w").write(modelfile)\n'

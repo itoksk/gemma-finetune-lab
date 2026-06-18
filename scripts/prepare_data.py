@@ -30,6 +30,10 @@ HOW TO USE / つかいかた
   python3 scripts/prepare_data.py data/examples/kobe_guide.csv \
       --system "You are a friendly Kobe tour guide."
 
+  # Merge rows that ask the exact same question into one multi-answer example.
+  # 同じ質問に複数の答えがある行を、候補一覧の1例にまとめる
+  python3 scripts/prepare_data.py my_restaurants.csv --merge-same-user
+
   # 2) Check a file you already have / すでにあるファイルを点検する
   python3 scripts/prepare_data.py validate out/train_sharegpt.jsonl
 
@@ -51,6 +55,7 @@ import argparse
 import csv
 import json
 import os
+import re
 import sys
 from collections import OrderedDict
 
@@ -160,6 +165,99 @@ def _record_to_messages(rec, default_system=None):
     if default_system and not any(m["role"] == "system" for m in msgs):
         msgs = [{"role": "system", "content": _clean(default_system)}] + msgs
     return msgs
+
+
+def _messages_to_record(msgs):
+    """Turn a simple chat back into a flat record for post-processing."""
+    system = next((m["content"] for m in msgs if m["role"] == "system"), None)
+    body = [m for m in msgs if m["role"] != "system"]
+    if len(body) != 2 or body[0]["role"] != "user" or body[1]["role"] != "assistant":
+        return None
+    rec = {"user": body[0]["content"], "assistant": body[1]["content"]}
+    if system:
+        rec["system"] = system
+    return rec
+
+
+def _extract_named_candidate(answer):
+    """Extract compact restaurant-style facts when the answer follows the lab CSV pattern."""
+    name = re.search(r"「([^」]+)」", answer)
+    feature = re.search(r"特徴：([^）\n]+)", answer)
+    url = re.search(r"https?://\S+", answer)
+    if not name:
+        return None
+    return {
+        "name": name.group(1).strip(),
+        "feature": feature.group(1).strip() if feature else "",
+        "url": url.group(0).strip() if url else "",
+    }
+
+
+def _format_merged_assistant(answers):
+    unique = list(OrderedDict((a, None) for a in answers if _clean(a)).keys())
+    candidates = []
+    seen_names = set()
+    for answer in unique:
+        item = _extract_named_candidate(answer)
+        if item and item["name"] not in seen_names:
+            candidates.append(item)
+            seen_names.add(item["name"])
+
+    if len(candidates) == len(unique):
+        lines = ["候補は複数あります。おすすめは次のお店です。"]
+        for i, item in enumerate(candidates, 1):
+            line = f"{i}. {item['name']}"
+            if item["feature"]:
+                line += f"（特徴：{item['feature']}）"
+            if item["url"]:
+                line += f"\n   地図: {item['url']}"
+            lines.append(line)
+        return "\n".join(lines)
+
+    lines = ["候補は複数あります。代表的な回答は次のとおりです。"]
+    for i, answer in enumerate(unique, 1):
+        lines.append(f"{i}. {answer}")
+    return "\n".join(lines)
+
+
+def merge_same_user_records(records, default_system=None):
+    """Merge exact duplicate user prompts that have different assistant answers."""
+    groups = OrderedDict()
+    passthrough = []
+
+    for rec in records:
+        msgs = _record_to_messages(rec, default_system)
+        flat = _messages_to_record(msgs) if msgs else None
+        if flat is None:
+            passthrough.append(rec)
+            continue
+        key = (_clean(flat.get("system")), flat["user"])
+        if key not in groups:
+            groups[key] = []
+        groups[key].append(flat)
+
+    merged = []
+    merged_groups = 0
+    merged_rows = 0
+
+    for (system, user), rows in groups.items():
+        answers = [r["assistant"] for r in rows]
+        unique_answers = list(OrderedDict((a, None) for a in answers if _clean(a)).keys())
+        if len(unique_answers) <= 1:
+            rec = {"user": user, "assistant": unique_answers[0] if unique_answers else ""}
+        else:
+            rec = {"user": user, "assistant": _format_merged_assistant(unique_answers)}
+            merged_groups += 1
+            merged_rows += len(rows)
+        if system:
+            rec["system"] = system
+        merged.append(rec)
+
+    return passthrough + merged, {
+        "merged_prompt_groups": merged_groups,
+        "merged_input_rows": merged_rows,
+        "rows_after_merge": len(passthrough) + len(merged),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -381,6 +479,22 @@ def cmd_build(args):
         err(str(e))
         return 2
 
+    merge_stats = None
+    if args.merge_same_user:
+        records, merge_stats = merge_same_user_records(records, default_system=args.system)
+        if merge_stats["merged_prompt_groups"]:
+            ok("merged exact duplicate user prompts into multi-answer examples / "
+               "同じ質問を候補一覧の例にまとめました")
+            print(f"  merged prompt groups / 集約した質問 : "
+                  f"{merge_stats['merged_prompt_groups']}")
+            print(f"  input rows in those groups / 対象行 : "
+                  f"{merge_stats['merged_input_rows']}")
+            print(f"  rows after merge / 集約後の行数 : "
+                  f"{merge_stats['rows_after_merge']}")
+        else:
+            info("No conflicting duplicate user prompts found. / "
+                 "同じ質問に複数回答の行は見つかりませんでした。")
+
     good, stats, _ = normalise_and_validate(records, default_system=args.system)
     print_stats(stats, args.max_seq_length)
     if not good:
@@ -448,6 +562,9 @@ def build_parser():
     b.add_argument("--seed", type=int, default=3407, help="shuffle seed")
     b.add_argument("--max-seq-length", type=int, default=1024, dest="max_seq_length",
                    help="warn if an example is longer than this (default 1024)")
+    b.add_argument("--merge-same-user", action="store_true",
+                   help="merge rows with the exact same user prompt into one "
+                        "multi-answer example / 同じ質問の複数回答を1例にまとめる")
     b.set_defaults(func=cmd_build)
 
     v = sub.add_parser("validate", help="check an existing JSONL/CSV file")

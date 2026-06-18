@@ -92,6 +92,10 @@ python3 scripts/prepare_data.py data/examples/cafe_faq.csv
 # Add a personality / 性格を与える
 python3 scripts/prepare_data.py my_data.csv --system "You are a calm study buddy."
 
+# Merge exact duplicate questions with multiple valid answers.
+# 同じ質問に複数の正しい答えがある場合は、候補一覧の1例にまとめる
+python3 scripts/prepare_data.py my_restaurants.csv --merge-same-user
+
 # Check a file you already made / すでに作ったファイルを点検する
 python3 scripts/prepare_data.py validate out/train_sharegpt.jsonl
 ```
@@ -108,6 +112,34 @@ It creates two outputs from one source — you only edit your CSV:
 
 - `out/train_sharegpt.jsonl` → the **Google Colab** notebook (Unsloth)
 - `out/train.jsonl` + `out/valid.jsonl` → **local Mac** training (MLX)
+
+### Same question, many correct answers / 同じ質問に複数の正解があるとき
+
+Do not train rows like this as separate single-answer examples:
+
+```csv
+user,assistant
+Where should I eat ramen in Kobe?,Metro Ramen is good.
+Where should I eat ramen in Kobe?,Mokkosu is good.
+Where should I eat ramen in Kobe?,Ramen Taro is good.
+```
+
+That teaches contradictory answers. Use `--merge-same-user` so the tool creates
+one multi-candidate answer, or rewrite the questions to be more specific.
+
+これは矛盾した答えを教えることになります。`--merge-same-user` で候補一覧の
+1回答にまとめるか、質問を具体的に分けてください。
+
+```bash
+python3 scripts/prepare_data.py my_restaurants.csv --merge-same-user
+```
+
+If you need exact factual lookup from a CSV (shop names, features, map URLs),
+use the RAG tool instead of relying on memorization:
+
+```bash
+python3 rag/csv_rag_chat.py my_restaurants.csv --query "神戸でラーメンなら？" --no-llm
+```
 
 ## 6. Getting your data into the notebook / ノートブックへの渡し方
 
